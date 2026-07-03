@@ -65,6 +65,12 @@ app.use((err, req, res, next) => {
   res.status(err.status || 500).json({ error: err.message || 'Internal server error' });
 });
 
-app.listen(PORT, () => {
-  console.log(`SabuCode server running at http://localhost:${PORT}`);
-});
+// Vercel imports this file as a serverless function (see vercel.json) instead
+// of running it directly, so only bind a port for local/traditional hosting.
+if (require.main === module) {
+  app.listen(PORT, () => {
+    console.log(`SabuCode server running at http://localhost:${PORT}`);
+  });
+}
+
+module.exports = app;
