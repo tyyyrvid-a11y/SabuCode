@@ -1,0 +1,219 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover" />
+<title>SabuCode</title>
+<meta name="description" content="One AI workspace for code, research, corporate work and creative writing." />
+<meta name="theme-color" content="#000000" />
+
+<!-- PWA -->
+<link rel="manifest" href="/manifest.webmanifest" />
+<meta name="mobile-web-app-capable" content="yes" />
+
+<!-- iOS home-screen app behavior (Safari ignores manifest.json for these) -->
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+<meta name="apple-mobile-web-app-title" content="SabuCode" />
+<link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
+
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" />
+<link rel="stylesheet" href="/css/style.css" />
+<link rel="icon" type="image/png" sizes="192x192" href="/icons/icon-192.png" />
+</head>
+<body>
+  <div class="boot-loading" id="bootLoading" aria-hidden="true">
+    <div class="boot-spinner"></div>
+  </div>
+
+  <div class="auth-gate hidden" id="authGate">
+    <div class="auth-gate-card">
+      <span class="brand-logo" aria-hidden="true">S</span>
+      <h1>Sabu<span class="brand-mark-accent">Code</span></h1>
+      <p>Sign in to sync your sessions across devices. An account is required to use SabuCode.</p>
+
+      <form class="auth-form" id="authForm">
+        <input type="email" id="authEmail" class="auth-input" placeholder="Email" autocomplete="email" required />
+        <input type="password" id="authPassword" class="auth-input" placeholder="Password" autocomplete="current-password" required minlength="6" />
+        <div class="auth-actions">
+          <button type="submit" class="auth-btn primary" id="authSignInBtn">Sign in</button>
+          <button type="button" class="auth-btn" id="authSignUpBtn">Create account</button>
+        </div>
+        <div class="auth-msg hidden" id="authMsg"></div>
+      </form>
+    </div>
+  </div>
+
+  <div class="app hidden" id="app">
+
+    <aside class="sidebar" id="sidebar">
+      <div class="brand">
+        <span class="brand-logo" aria-hidden="true">S</span>
+        <span class="brand-mark">Sabu<span class="brand-mark-accent">Code</span></span>
+        <span class="brand-dot" id="statusDot" title="checking connection..."></span>
+      </div>
+
+      <div class="panel-tabs sidebar-tabs">
+        <button type="button" class="panel-tab active" id="sidebarTabRecentBtn" data-sound="tap">Conversas recentes</button>
+        <button type="button" class="panel-tab" id="sidebarTabMenuBtn" data-sound="tap">Menu</button>
+      </div>
+
+      <div class="sidebar-tab-panel" id="sidebarTabRecent">
+        <button class="new-chat-btn" id="newChatBtn" data-sound="tap">
+          <svg class="icon" viewBox="0 0 24 24" width="1em" height="1em" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M11.5 5H6.8A1.8 1.8 0 0 0 5 6.8v10.4A1.8 1.8 0 0 0 6.8 19h10.4A1.8 1.8 0 0 0 19 17.2V12.5"/><path d="M16.8 3.6 20.4 7.2 12.4 15.2 8.4 16.4 9.6 12.4Z"/></svg>
+          <span>New session</span>
+        </button>
+
+        <div class="sidebar-section sessions-section no-border">
+          <div class="session-list" id="sessionList"></div>
+        </div>
+      </div>
+
+      <div class="sidebar-tab-panel hidden" id="sidebarTabMenu">
+        <div class="sidebar-section no-border">
+          <div class="commands-title">Commands</div>
+          <div class="command-ref-list">
+            <div class="command-ref">
+              <span class="command-ref-icon"><svg class="icon" viewBox="0 0 24 24" width="1em" height="1em" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M7 3.5h6.4L18 8.1V19a1.5 1.5 0 0 1-1.5 1.5h-9A1.5 1.5 0 0 1 6 19V5A1.5 1.5 0 0 1 7.5 3.5Z"/><path d="M13.4 3.5v3.1A1.5 1.5 0 0 0 14.9 8.1H18"/></svg></span>
+              <span class="command-ref-name">/createfile</span>
+              <span class="command-ref-desc">create &amp; preview files</span>
+            </div>
+            <div class="command-ref">
+              <span class="command-ref-icon"><svg class="icon" viewBox="0 0 24 24" width="1em" height="1em" fill="currentColor" stroke="none"><path d="M10 4.2c.62 3.06 1.52 3.96 4.6 4.6-3.08.64-3.98 1.54-4.6 4.6-.62-3.06-1.52-3.96-4.6-4.6 3.08-.64 3.98-1.54 4.6-4.6Z"/><path d="M17 13c.34 1.5.86 2.02 2.4 2.4-1.54.38-2.06.9-2.4 2.4-.34-1.5-.86-2.02-2.4-2.4 1.54-.38 2.06-.9 2.4-2.4Z"/></svg></span>
+              <span class="command-ref-name">/think</span>
+              <span class="command-ref-desc">deliberate reasoning</span>
+            </div>
+            <div class="command-ref">
+              <span class="command-ref-icon"><svg class="icon" viewBox="0 0 24 24" width="1em" height="1em" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20l1.1-4.1L15.4 5.6a1.6 1.6 0 0 1 2.26 0l.74.74a1.6 1.6 0 0 1 0 2.26L8.1 18.9 4 20Z"/><path d="M14.2 6.8l3 3"/></svg></span>
+              <span class="command-ref-name">/text</span>
+              <span class="command-ref-desc">creative writing</span>
+            </div>
+            <div class="command-ref">
+              <span class="command-ref-icon"><svg class="icon" viewBox="0 0 24 24" width="1em" height="1em" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3.8l7.4 3.7-7.4 3.7L4.6 7.5Z"/><path d="M4.6 12l7.4 3.7 7.4-3.7"/><path d="M4.6 16.4l7.4 3.7 7.4-3.7"/></svg></span>
+              <span class="command-ref-name">/agent</span>
+              <span class="command-ref-desc">spawn agents for big tasks</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="sidebar-section">
+          <label class="toggle-row" id="toolsRow">
+            <span>Tools (search + fetch)</span>
+            <input type="checkbox" id="toolsToggle" checked />
+            <span class="toggle-pill"></span>
+          </label>
+          <label class="toggle-row">
+            <span>Sound effects</span>
+            <input type="checkbox" id="soundToggle" checked />
+            <span class="toggle-pill"></span>
+          </label>
+          <label class="toggle-row">
+            <span>Haptics</span>
+            <input type="checkbox" id="hapticsToggle" checked />
+            <span class="toggle-pill"></span>
+          </label>
+        </div>
+
+        <div class="sidebar-section auth-section">
+          <div class="commands-title">Account</div>
+          <div class="auth-account" id="authAccount">
+            <div class="auth-account-row">
+              <span class="sync-status" id="syncStatus"><span class="sync-status-dot"></span><span id="syncStatusLabel">Offline</span></span>
+            </div>
+            <div class="auth-email" id="authUserEmail"></div>
+            <button type="button" class="auth-btn" id="authSignOutBtn">Sign out</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="sidebar-footer">
+        <span class="status-pill"><span class="status-pill-dot"></span><span id="modelName">connecting…</span></span>
+      </div>
+    </aside>
+
+    <main class="main">
+      <header class="topbar">
+        <button class="hamburger" id="hamburger" aria-label="Toggle menu">
+          <svg class="icon" viewBox="0 0 24 24" width="1em" height="1em" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16"/><path d="M4 12h16"/><path d="M4 17h16"/></svg>
+        </button>
+        <span class="topbar-title" id="topbarTitle">SabuCode</span>
+        <button class="files-toggle" id="filesToggleBtn" style="display:none" data-sound="tap">
+          <svg class="icon" viewBox="0 0 24 24" width="1em" height="1em" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7.5A1.5 1.5 0 0 1 5.5 6h3.3a1.5 1.5 0 0 1 1.06.44l1 1a1.5 1.5 0 0 0 1.06.44h5.08A1.5 1.5 0 0 1 18.5 9.4v7.6A1.5 1.5 0 0 1 17 18.5H5.5A1.5 1.5 0 0 1 4 17Z"/></svg>
+          <span>Files</span> <span class="badge" id="fileCount">0</span>
+        </button>
+      </header>
+
+      <section class="chat" id="chat">
+        <div class="welcome" id="welcome">
+          <div class="welcome-glyph" aria-hidden="true">
+            <svg viewBox="0 0 24 24" width="34" height="34" fill="currentColor" stroke="none"><path d="M10 4.2c.62 3.06 1.52 3.96 4.6 4.6-3.08.64-3.98 1.54-4.6 4.6-.62-3.06-1.52-3.96-4.6-4.6 3.08-.64 3.98-1.54 4.6-4.6Z"/><path d="M17 13c.34 1.5.86 2.02 2.4 2.4-1.54.38-2.06.9-2.4 2.4-.34-1.5-.86-2.02-2.4-2.4 1.54-.38 2.06-.9 2.4-2.4Z"/></svg>
+          </div>
+          <h1>What are we building today?</h1>
+          <p>Code, research, corporate work, creative writing or just messing around — everything in one place.</p>
+          <p class="welcome-hint">Type <code>/</code> to see commands like <code>/createfile</code>, <code>/think</code>, <code>/text</code> and <code>/agent</code>.</p>
+        </div>
+        <div class="messages" id="messages"></div>
+      </section>
+
+      <form class="composer" id="composer">
+        <div class="command-palette hidden" id="commandPalette"></div>
+        <div class="active-command-chip hidden" id="activeCommandChip"></div>
+        <textarea id="promptInput" placeholder="Ask SabuCode anything… (try /think, /createfile, /text, /agent)" rows="1"></textarea>
+        <button type="submit" class="send-btn" id="sendBtn" data-sound="send" aria-label="Send">
+          <svg class="icon" viewBox="0 0 24 24" width="1em" height="1em" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V6.3"/><path d="M6.5 11 12 5.5 17.5 11"/></svg>
+        </button>
+      </form>
+    </main>
+
+    <aside class="files-panel" id="filesPanel">
+      <div class="files-header">
+        <div class="panel-tabs">
+          <button class="panel-tab active" id="tabFilesBtn" data-sound="tap">Files</button>
+          <button class="panel-tab" id="tabPreviewBtn" data-sound="tap">
+            <svg class="icon" viewBox="0 0 24 24" width="1em" height="1em" fill="currentColor" stroke="none"><path d="M8 5.6v12.8a.6.6 0 0 0 .92.5l10-6.4a.6.6 0 0 0 0-1L8.92 5.1A.6.6 0 0 0 8 5.6Z"/></svg>
+            <span>Preview</span>
+          </button>
+        </div>
+        <button id="closeFilesBtn" data-sound="tap" aria-label="Close">
+          <svg class="icon" viewBox="0 0 24 24" width="1em" height="1em" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M6.2 6.2 17.8 17.8"/><path d="M17.8 6.2 6.2 17.8"/></svg>
+        </button>
+      </div>
+
+      <div class="files-list" id="filesList"></div>
+      <button class="download-zip-btn" id="downloadZipBtn" data-sound="success">
+        <svg class="icon" viewBox="0 0 24 24" width="1em" height="1em" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v10.5"/><path d="M7.5 10.5 12 15l4.5-4.5"/><path d="M5 19h14"/></svg>
+        <span>Download .zip</span>
+      </button>
+
+      <div class="preview-view" id="previewView">
+        <div class="preview-toolbar">
+          <button id="refreshPreviewBtn" data-sound="tap">
+            <svg class="icon" viewBox="0 0 24 24" width="1em" height="1em" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M19.5 12a7.5 7.5 0 1 1-2.2-5.3"/><path d="M19.5 4.2v4.3h-4.3"/></svg>
+            <span>Refresh</span>
+          </button>
+          <button id="openPreviewTabBtn" data-sound="tap">
+            <svg class="icon" viewBox="0 0 24 24" width="1em" height="1em" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M13.5 5H19v5.5"/><path d="M19 5l-7.5 7.5"/><path d="M18 13.2V17a1.5 1.5 0 0 1-1.5 1.5h-9A1.5 1.5 0 0 1 6 17V8a1.5 1.5 0 0 1 1.5-1.5h3.8"/></svg>
+            <span>Open in tab</span>
+          </button>
+        </div>
+        <iframe id="previewFrame" class="preview-frame hidden" sandbox="allow-scripts allow-forms allow-modals allow-popups" title="Live preview"></iframe>
+        <p class="preview-empty" id="previewEmpty">Generate an HTML or React file and it'll render here live.</p>
+      </div>
+    </aside>
+
+  </div>
+
+  <div class="toast-stack" id="toastStack"></div>
+
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
+  <script src="/js/icons.js"></script>
+  <script src="/js/auth.js"></script>
+  <script src="/js/store.js"></script>
+  <script src="/js/haptics.js"></script>
+  <script src="/js/sound.js"></script>
+  <script src="/js/preview.js"></script>
+  <script src="/js/app.js"></script>
+</body>
+</html>
