@@ -39,6 +39,9 @@
     tabPreviewBtn: document.getElementById('tabPreviewBtn'),
     previewFrame: document.getElementById('previewFrame'),
     previewEmpty: document.getElementById('previewEmpty'),
+    previewEmptySpinner: document.getElementById('previewEmptySpinner'),
+    previewEmptyText: document.getElementById('previewEmptyText'),
+    previewLiveBadge: document.getElementById('previewLiveBadge'),
     refreshPreviewBtn: document.getElementById('refreshPreviewBtn'),
     openPreviewTabBtn: document.getElementById('openPreviewTabBtn'),
     toastStack: document.getElementById('toastStack'),
@@ -717,11 +720,24 @@
     if (!html) {
       el.previewFrame.classList.add('hidden');
       el.previewEmpty.classList.remove('hidden');
+      el.previewLiveBadge.classList.add('hidden');
       return;
     }
     el.previewEmpty.classList.add('hidden');
     el.previewFrame.classList.remove('hidden');
     el.previewFrame.srcdoc = html;
+  }
+
+  // reflects live app-generation progress in the preview panel: a spinner over the empty
+  // state before any file exists yet, and a small pulsing badge over the iframe once a
+  // preview is already rendering but more files are still streaming in.
+  function setPreviewBuilding(active) {
+    el.previewEmptySpinner.classList.toggle('hidden', !active);
+    el.previewEmptyText.textContent = active
+      ? 'Building your app…'
+      : "Generate an HTML or React file and it'll render here live.";
+    const hasFrame = !el.previewFrame.classList.contains('hidden');
+    el.previewLiveBadge.classList.toggle('hidden', !active || !hasFrame);
   }
 
   el.refreshPreviewBtn.addEventListener('click', () => { renderPreview(); Sound.tap(); Haptics.tap(); });
@@ -812,6 +828,8 @@
         renderToolLog(toolLog) +
         renderMessageBody(assistantText).html +
         sourcesHtml;
+      const isBuilding = creating.phase === 'active' || agentsState.some((a) => a.status === 'running');
+      setPreviewBuilding(isBuilding);
     };
 
     try {
@@ -969,6 +987,7 @@
     } finally {
       state.sending = false;
       el.sendBtn.disabled = false;
+      setPreviewBuilding(false);
       scrollToBottom();
     }
   });

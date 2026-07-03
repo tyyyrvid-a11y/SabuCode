@@ -198,8 +198,14 @@
             <span>Open in tab</span>
           </button>
         </div>
-        <iframe id="previewFrame" class="preview-frame hidden" sandbox="allow-scripts allow-forms allow-modals allow-popups" title="Live preview"></iframe>
-        <p class="preview-empty" id="previewEmpty">Generate an HTML or React file and it'll render here live.</p>
+        <div class="preview-frame-wrap">
+          <iframe id="previewFrame" class="preview-frame hidden" sandbox="allow-scripts allow-forms allow-modals allow-popups" title="Live preview"></iframe>
+          <div class="preview-live-badge hidden" id="previewLiveBadge"><span class="preview-live-dot"></span>Building live…</div>
+        </div>
+        <div class="preview-empty" id="previewEmpty">
+          <span class="preview-empty-spinner hidden" id="previewEmptySpinner"></span>
+          <span id="previewEmptyText">Generate an HTML or React file and it'll render here live.</span>
+        </div>
       </div>
     </aside>
 

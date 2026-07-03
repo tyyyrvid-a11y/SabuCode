@@ -48,11 +48,15 @@ const COMMANDS = {
     label: 'Think',
     temperature: 0.4,
     extra:
-      'The user invoked /think: they want careful, deliberate reasoning. First, reason through the problem step ' +
-      'by step inside a <thinking>...</thinking> block — consider alternatives, check your own work, catch ' +
-      'mistakes. This block is shown to the user as a separate "thinking" panel, not as your answer. After the ' +
-      'closing </thinking> tag, write your final, concise answer as normal text outside the block. Always include ' +
-      'both a <thinking> block and a final answer after it.'
+      'The user invoked /think: they want a brief round of deliberate reasoning before you answer — not an ' +
+      'exhaustive investigation. Inside a <thinking>...</thinking> block, jot down only the key steps or ' +
+      'considerations needed to reach a correct answer, in a few short sentences (a couple of short paragraphs ' +
+      'at most). Do not re-derive the same point twice, do not enumerate every alternative, and do not keep ' +
+      'second-guessing an answer you already know is right — reasoning tokens are limited and shared with your ' +
+      'final answer, so once you have enough to answer confidently, stop thinking and close the block. This ' +
+      'block is shown to the user as a separate "thinking" panel, not as your answer. After the closing ' +
+      '</thinking> tag, write your final, concise answer as normal text outside the block. Always include both a ' +
+      '<thinking> block and a final answer after it, and always leave enough room for the final answer.'
   },
   text: {
     label: 'Creative writing',
