@@ -12,6 +12,7 @@
     "node": ">=18"
   },
   "dependencies": {
+    "@supabase/supabase-js": "^2.110.0",
     "archiver": "^7.0.1",
     "cheerio": "^1.0.0",
     "cors": "^2.8.5",

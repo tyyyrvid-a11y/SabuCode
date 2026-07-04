@@ -6,6 +6,10 @@
     currentSessionId: null
   };
 
+  let activeAbortController = null;
+  const SEND_ICON = '<svg class="icon" viewBox="0 0 24 24" width="1em" height="1em" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V6.3"/><path d="M6.5 11 12 5.5 17.5 11"/></svg>';
+  const STOP_ICON = '<svg class="icon stop-icon" viewBox="0 0 24 24" width="1em" height="1em" fill="currentColor" stroke="none"><rect x="7" y="7" width="10" height="10" rx="1.5"/></svg>';
+
   const el = {
     sidebar: document.getElementById('sidebar'),
     hamburger: document.getElementById('hamburger'),
@@ -44,6 +48,8 @@
     previewLiveBadge: document.getElementById('previewLiveBadge'),
     refreshPreviewBtn: document.getElementById('refreshPreviewBtn'),
     openPreviewTabBtn: document.getElementById('openPreviewTabBtn'),
+    thinkingSlider: document.getElementById('thinkingSlider'),
+    thinkingSliderValue: document.getElementById('thinkingSliderValue'),
     toastStack: document.getElementById('toastStack'),
     app: document.getElementById('app'),
     bootLoading: document.getElementById('bootLoading'),
@@ -65,7 +71,7 @@
 
   const COMMANDS = [
     { cmd: 'createfile', icon: Icons.get('doc'), label: '/createfile', desc: 'Create & preview files' },
-    { cmd: 'think', icon: Icons.get('sparkles'), label: '/think', desc: 'Deliberate step-by-step reasoning' },
+
     { cmd: 'text', icon: Icons.get('pencil'), label: '/text', desc: 'Creative writing mode' },
     { cmd: 'agent', icon: Icons.get('stack'), label: '/agent', desc: 'Spawn agents for complex tasks' }
   ];
@@ -99,10 +105,26 @@
 
   let lastChipCount = 0;
 
+  function getActiveCommands(text) {
+    if (text.trim().toLowerCase() === '/undo') return [];
+    const explicit = extractCommands(text).commands;
+    if (explicit.length > 0) return explicit;
+    
+    const reversed = state.history.slice().reverse();
+    for (const msg of reversed) {
+      if (msg.role === 'user') {
+        if (msg.content.trim().toLowerCase() === '/undo') return [];
+        const past = extractCommands(msg.content).commands;
+        if (past.length > 0) return past;
+      }
+    }
+    return [];
+  }
+
   // only lights up once at least one command name is *confirmed* (followed by a space),
   // so it never overlaps with the palette (which shows while still typing a name)
   function updateActiveCommandChip() {
-    const { commands } = extractCommands(el.promptInput.value);
+    const commands = getActiveCommands(el.promptInput.value);
     if (!commands.length) {
       el.activeCommandChip.classList.add('hidden');
       el.activeCommandChip.innerHTML = '';
@@ -357,7 +379,7 @@
   function deriveTitle(history) {
     const first = history.find((m) => m.role === 'user');
     if (!first) return 'New session';
-    let t = first.content.trim().replace(/^\/(createfile|think|text|agent)\b\s*/i, '');
+    let t = first.content.trim().replace(/^\/(createfile|text|agent)\b\s*/i, '');
     t = t.replace(/\s+/g, ' ').trim();
     if (!t) return 'New session';
     return t.length > 42 ? t.slice(0, 42) + '…' : t;
@@ -442,6 +464,12 @@
     el.promptInput.style.height = Math.min(el.promptInput.scrollHeight, 200) + 'px';
     updatePalette();
     updateActiveCommandChip();
+  });
+
+  el.thinkingSlider.addEventListener('input', (e) => {
+    const val = parseInt(e.target.value, 10);
+    const labels = { 0: 'Off', 25: 'Low', 50: 'Med', 75: 'High', 100: 'Max' };
+    el.thinkingSliderValue.textContent = labels[val] || 'Off';
   });
 
   el.promptInput.addEventListener('keydown', (e) => {
@@ -663,13 +691,8 @@
   function createMessageEl(role, isError = false) {
     const wrap = document.createElement('div');
     wrap.className = `msg ${role}${isError ? ' error' : ''}`;
-    const avatar = document.createElement('div');
-    avatar.className = 'msg-avatar';
-    if (role === 'user') avatar.innerHTML = Icons.get('person');
-    else avatar.textContent = 'S';
     const body = document.createElement('div');
     body.className = 'msg-body';
-    wrap.appendChild(avatar);
     wrap.appendChild(body);
     el.messages.appendChild(wrap);
     el.welcome.classList.add('hidden');
@@ -693,6 +716,7 @@
       body.innerHTML = turn.role === 'user' ? renderUserBody(turn.content) : renderMessageBody(turn.content).html;
     }
     scrollToBottom();
+    updateActiveCommandChip();
   }
 
   // ---------- files panel ----------
@@ -715,8 +739,19 @@
   el.tabFilesBtn.addEventListener('click', () => { switchPanelTab('files'); Sound.tap(); Haptics.tap(); });
   el.tabPreviewBtn.addEventListener('click', () => { switchPanelTab('preview'); Sound.tap(); Haptics.tap(); });
 
-  function renderPreview() {
-    const html = Preview.build(state.files);
+  function renderPreview(currentLiveFiles = [], currentAgentsState = []) {
+    const merged = new Map(state.files);
+    for (const f of currentLiveFiles) {
+      if (!f.done) merged.set(f.path, f.text);
+    }
+    for (const a of currentAgentsState) {
+      if (a.liveFiles) {
+        for (const f of a.liveFiles) {
+          if (!f.done) merged.set(f.path, f.text);
+        }
+      }
+    }
+    const html = Preview.build(merged);
     if (!html) {
       el.previewFrame.classList.add('hidden');
       el.previewEmpty.classList.remove('hidden');
@@ -779,16 +814,36 @@
 
   // ---------- chat submit ----------
 
+  el.sendBtn.addEventListener('click', (e) => {
+    if (state.sending) {
+      e.preventDefault();
+      if (activeAbortController) activeAbortController.abort();
+    }
+  });
+
   el.composer.addEventListener('submit', async (e) => {
     e.preventDefault();
+    if (state.sending) return;
     const text = el.promptInput.value.trim();
-    if (!text || state.sending) return;
+    if (!text) return;
+
+    if (text.toLowerCase() === '/undo') {
+      state.history.push({ role: 'user', content: text });
+      persist();
+      renderHistory();
+      el.promptInput.value = '';
+      el.promptInput.style.height = 'auto';
+      updateActiveCommandChip();
+      return;
+    }
 
     hidePalette();
-    const { commands } = extractCommands(text);
+    const commands = getActiveCommands(text);
 
     state.sending = true;
-    el.sendBtn.disabled = true;
+    el.sendBtn.innerHTML = STOP_ICON;
+    el.sendBtn.classList.add('is-stopping');
+    activeAbortController = new AbortController();
     Sound.send(); Haptics.send();
 
     const history = state.history;
@@ -810,8 +865,17 @@
     const toolLog = []; // { name, args, status, error }
     const creating = { phase: 'idle', pending: 0, lastFile: '' }; // idle | active | done
     const reasoning = { text: '', active: false, collapsed: false, elapsed: null, started: null };
-    const agentsState = []; // { id, name, status, text, tools: [] }
+    const agentsState = []; // { id, name, status, text, tools: [], liveFiles: [] }
+    const liveFiles = []; // { path, text, done } — live "typing" view of write_file as it streams in
     let hideBannerTimer = null;
+
+    let renderPreviewTimer = null;
+    const renderPreviewDebounced = () => {
+      if (renderPreviewTimer) clearTimeout(renderPreviewTimer);
+      renderPreviewTimer = setTimeout(() => {
+        renderPreview(liveFiles, agentsState);
+      }, 250);
+    };
 
     assistantBody.addEventListener('click', (ev) => {
       if (ev.target.closest('.thinking-header')) {
@@ -825,21 +889,40 @@
         renderThinkingPanel(reasoning) +
         renderAgentBoard(agentsState) +
         renderCreatingBanner(creating) +
+        renderLiveCode(liveFiles) +
         renderToolLog(toolLog) +
         renderMessageBody(assistantText).html +
         sourcesHtml;
+      assistantBody.querySelectorAll('.live-code-body').forEach((body) => {
+        body.scrollTop = body.scrollHeight;
+      });
       const isBuilding = creating.phase === 'active' || agentsState.some((a) => a.status === 'running');
       setPreviewBuilding(isBuilding);
     };
 
     try {
+      let token = null;
+      try {
+        const client = await window.Auth.getClient();
+        if (client) {
+          const sessionRes = await client.auth.getSession();
+          token = sessionRes?.data?.session?.access_token;
+        }
+      } catch (e) {}
+
       const res = await fetch('/api/chat', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+        },
+        signal: activeAbortController.signal,
         body: JSON.stringify({
+          sessionId: state.currentSessionId,
           commands,
           history,
-          tools: el.toolsToggle.checked
+          tools: el.toolsToggle.checked,
+          thinkingBudget: parseInt(el.thinkingSlider.value, 10)
         })
       });
 
@@ -876,6 +959,8 @@
               reasoning.text += data.text;
               renderAssistant();
               scrollToBottom();
+              const thinkingBody = el.chat.querySelector('.thinking-body');
+              if (thinkingBody) thinkingBody.scrollTop = thinkingBody.scrollHeight;
             } else if (currentEvent === 'delta') {
               if (reasoning.active) {
                 reasoning.active = false;
@@ -887,7 +972,7 @@
               scrollToBottom();
             } else if (currentEvent === 'agent_plan') {
               agentsState.length = 0;
-              (data.agents || []).forEach((a, id) => agentsState.push({ id, name: a.name, status: 'pending', text: '', tools: [] }));
+              (data.agents || []).forEach((a, id) => agentsState.push({ id, name: a.name, status: 'pending', text: '', tools: [], liveFiles: [] }));
               renderAssistant();
               scrollToBottom();
             } else if (currentEvent === 'agent_start') {
@@ -900,12 +985,31 @@
               if (a) a.text += data.text;
               renderAssistant();
               scrollToBottom();
+            } else if (currentEvent === 'agent_file_start') {
+              const a = agentsState.find((x) => x.id === data.id);
+              if (a) a.liveFiles.push({ path: data.path, text: '', done: false });
+              renderAssistant();
+              if (/\.(html|js|jsx|ts|tsx|css)$/i.test(data.path) && !el.app.classList.contains('files-open')) {
+                switchPanelTab('preview');
+                el.app.classList.add('files-open');
+              }
+            } else if (currentEvent === 'agent_file_delta') {
+              const a = agentsState.find((x) => x.id === data.id);
+              const f = a && [...a.liveFiles].reverse().find((x) => x.path === data.path && !x.done);
+              if (f) f.text += data.text;
+              renderAssistant();
+              renderPreviewDebounced();
             } else if (currentEvent === 'agent_tool_start') {
               const a = agentsState.find((x) => x.id === data.id);
               if (a) {
                 a.tools.push({ name: data.name, args: data.args, status: 'running' });
                 if (data.name === 'write_file' && data.args?.path && typeof data.args?.content === 'string') {
+                  const ext = data.args.path.split('.').pop() || '';
+                  a.text += `\n\`\`\`${ext} path=${data.args.path}\n${data.args.content}\n\`\`\`\n`;
                   addFiles([{ path: data.args.path, content: data.args.content }]);
+                  const f = [...a.liveFiles].reverse().find((x) => x.path === data.args.path && !x.done);
+                  if (f) { f.text = data.args.content; f.done = true; }
+                  else a.liveFiles.push({ path: data.args.path, text: data.args.content, done: true });
                 }
               }
               Sound.tap();
@@ -921,6 +1025,18 @@
               const a = agentsState.find((x) => x.id === data.id);
               if (a) a.status = 'done';
               renderAssistant();
+            } else if (currentEvent === 'file_start') {
+              liveFiles.push({ path: data.path, text: '', done: false });
+              renderAssistant();
+              if (/\.(html|js|jsx|ts|tsx|css)$/i.test(data.path) && !el.app.classList.contains('files-open')) {
+                switchPanelTab('preview');
+                el.app.classList.add('files-open');
+              }
+            } else if (currentEvent === 'file_delta') {
+              const f = [...liveFiles].reverse().find((x) => x.path === data.path && !x.done);
+              if (f) f.text += data.text;
+              renderAssistant();
+              renderPreviewDebounced();
             } else if (currentEvent === 'tool_start') {
               if (data.name === 'write_file') {
                 if (hideBannerTimer) { clearTimeout(hideBannerTimer); hideBannerTimer = null; }
@@ -928,7 +1044,12 @@
                 creating.pending += 1;
                 creating.lastFile = data.args?.path || '';
                 if (data.args?.path && typeof data.args?.content === 'string') {
+                  const ext = data.args.path.split('.').pop() || '';
+                  assistantText += `\n\`\`\`${ext} path=${data.args.path}\n${data.args.content}\n\`\`\`\n`;
                   addFiles([{ path: data.args.path, content: data.args.content }]);
+                  const f = [...liveFiles].reverse().find((x) => x.path === data.args.path && !x.done);
+                  if (f) { f.text = data.args.content; f.done = true; }
+                  else liveFiles.push({ path: data.args.path, text: data.args.content, done: true });
                 }
               } else {
                 toolLog.push({ name: data.name, args: data.args, status: 'running' });
@@ -980,13 +1101,20 @@
       persist();
       if (files.length || creating.lastFile || agentsState.length) playSuccess(); else { Sound.tap(); }
     } catch (err) {
-      if (hideBannerTimer) clearTimeout(hideBannerTimer);
-      assistantBody.parentElement.classList.add('error');
-      assistantBody.innerHTML = `<p class="error-line">${Icons.get('warning')} ${escapeHtml(err.message)}</p>`;
-      playError(err.message);
+      if (err.name === 'AbortError') {
+        history.push({ role: 'assistant', content: assistantText });
+        persist();
+      } else {
+        if (hideBannerTimer) clearTimeout(hideBannerTimer);
+        assistantBody.parentElement.classList.add('error');
+        assistantBody.innerHTML = `<p class="error-line">${Icons.get('warning')} ${escapeHtml(err.message)}</p>`;
+        playError(err.message);
+      }
     } finally {
       state.sending = false;
-      el.sendBtn.disabled = false;
+      el.sendBtn.innerHTML = SEND_ICON;
+      el.sendBtn.classList.remove('is-stopping');
+      activeAbortController = null;
       setPreviewBuilding(false);
       scrollToBottom();
     }
@@ -1012,9 +1140,11 @@
         const tools = a.tools.length
           ? `<div class="agent-tool-pills">${a.tools.map(renderToolPill).join('')}</div>`
           : '';
+        const liveCode = a.liveFiles && a.liveFiles.length ? renderLiveCode(a.liveFiles) : '';
         return `<div class="agent-card">
           <div class="agent-card-header"><span class="agent-card-icon">${Icons.get('stack')}</span>${escapeHtml(a.name)}<span class="agent-status ${a.status}">${a.status}</span></div>
           ${a.text ? `<div class="agent-card-body">${escapeHtml(a.text)}</div>` : ''}
+          ${liveCode}
           ${tools}
         </div>`;
       })
@@ -1035,6 +1165,23 @@
       <div class="creating-label">${label}${file}</div>
       <div class="creating-bar-track"><div class="creating-bar-fill"></div></div>
     </div>`;
+  }
+
+  // live "typing" view of write_file's content as it streams in, token by token —
+  // purely a visual preview; the authoritative file is added via addFiles() once the
+  // tool call is complete (see the file_start/file_delta and tool_start handlers above).
+  function renderLiveCode(liveFiles) {
+    if (!liveFiles.length) return '';
+    return liveFiles
+      .map((f) => {
+        const status = f.done ? '[✓]' : '[...]';
+        const cursor = f.done ? '' : '<span class="live-code-cursor">_</span>';
+        return `<div class="live-code-terminal">
+          <div style="color: var(--wine-bright); font-weight: bold;">${status} write_file ${escapeHtml(f.path)}</div>
+          <pre style="background: transparent; border: none; padding: 0; margin-top: 4px; color: var(--grey-300);">${escapeHtml(f.text)}${cursor}</pre>
+        </div>`;
+      })
+      .join('');
   }
 
   const TOOL_ICONS = {
@@ -1116,6 +1263,14 @@
     el.bootLoading.classList.add('hidden');
     gateApp(user);
     if (user) {
+      Store.onDataChange(() => {
+        if (state.currentSessionId && !Store.get(state.currentSessionId)) {
+          state.currentSessionId = Store.currentId();
+        }
+        loadSessions();
+        renderSessions();
+        renderHistory();
+      });
       loadSessions();
       renderSessions();
       renderHistory();

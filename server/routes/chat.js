@@ -1,7 +1,20 @@
 const express = require('express');
+const { createClient } = require('@supabase/supabase-js');
 const { runAgent, runMultiAgent, COMMANDS } = require('../lib/nim');
 
 const router = express.Router();
+
+function getSupabaseClient(req) {
+  const authHeader = req.headers.authorization;
+  if (!authHeader || !authHeader.startsWith('Bearer ')) return null;
+  const token = authHeader.split(' ')[1];
+  const url = process.env.SUPABASE_URL;
+  const key = process.env.SUPABASE_ANON_KEY;
+  if (!url || !key) return null;
+  return createClient(url, key, {
+    global: { headers: { Authorization: `Bearer ${token}` } }
+  });
+}
 
 const COMMAND_NAMES = Object.keys(COMMANDS).concat('agent').join('|');
 const LEADING_COMMANDS_RE = new RegExp(`^(?:\\s*/(?:${COMMAND_NAMES})\\b[ \\t]*)+`, 'i');
@@ -23,7 +36,7 @@ function slimArgsForEcho(name, args) {
 }
 
 router.post('/', async (req, res) => {
-  const { command = null, commands = null, history = [], tools = true } = req.body || {};
+  const { command = null, commands = null, history = [], tools = true, thinkingBudget = 0 } = req.body || {};
 
   if (!Array.isArray(history) || !history.length) {
     return res.status(400).json({ error: 'history must be a non-empty array' });
@@ -38,9 +51,16 @@ router.post('/', async (req, res) => {
   res.setHeader('X-Accel-Buffering', 'no');
   res.flushHeaders?.();
 
+  let fullAssistantText = '';
+
   const send = (event, data) => {
-    res.write(`event: ${event}\n`);
-    res.write(`data: ${JSON.stringify(data)}\n\n`);
+    if (res.writableEnded) return;
+    try {
+      res.write(`event: ${event}\n`);
+      res.write(`data: ${JSON.stringify(data)}\n\n`);
+    } catch (e) {
+      // Ignore write errors to let the agent finish in background
+    }
   };
 
   const sources = [];
@@ -64,20 +84,33 @@ router.post('/', async (req, res) => {
           onAgentStart: (d) => send('agent_start', d),
           onAgentDelta: (d) => send('agent_delta', d),
           onAgentToolStart: ({ id, name, args }) => send('agent_tool_start', { id, name, args }),
-          onAgentToolEnd: ({ id, name, args, result }) =>
-            send('agent_tool_end', { id, name, args: slimArgsForEcho(name, args), result: summarizeToolResult(name, result) }),
+          onAgentToolEnd: ({ id, name, args, result }) => {
+            if (name === 'write_file' && args?.path && typeof args?.content === 'string') {
+              const ext = args.path.split('.').pop() || '';
+              fullAssistantText += `\n\`\`\`${ext} path=${args.path}\n${args.content}\n\`\`\`\n`;
+            }
+            send('agent_tool_end', { id, name, args: slimArgsForEcho(name, args), result: summarizeToolResult(name, result) });
+          },
           onAgentEnd: (d) => send('agent_end', d),
-          onDelta: (text) => send('delta', { text })
+          onAgentFileStart: (d) => send('agent_file_start', d),
+          onAgentFileDelta: (d) => send('agent_file_delta', d),
+          onDelta: (text) => { fullAssistantText += text; send('delta', { text }); }
         }
       );
     } else {
       await runAgent(
-        { commands: cmdList, history, toolsEnabled },
+        { commands: cmdList, history, toolsEnabled, thinkingBudget },
         {
-          onDelta: (text) => send('delta', { text }),
+          onDelta: (text) => { fullAssistantText += text; send('delta', { text }); },
           onReasoning: (text) => send('thinking', { text }),
+          onFileStart: ({ path }) => send('file_start', { path }),
+          onFileDelta: ({ path, text }) => send('file_delta', { path, text }),
           onToolStart: ({ name, args }) => send('tool_start', { name, args }),
           onToolEnd: ({ name, args, result }) => {
+            if (name === 'write_file' && args?.path && typeof args?.content === 'string') {
+              const ext = args.path.split('.').pop() || '';
+              fullAssistantText += `\n\`\`\`${ext} path=${args.path}\n${args.content}\n\`\`\`\n`;
+            }
             send('tool_end', { name, args: slimArgsForEcho(name, args), result: summarizeToolResult(name, result) });
             if (name === 'web_search' && Array.isArray(result?.results)) {
               sources.push(...result.results);
@@ -89,10 +122,20 @@ router.post('/', async (req, res) => {
 
     if (sources.length) send('sources', { sources });
     send('done', { ok: true });
+
+    // Background sync: save the response even if the browser disconnected
+    const sessionId = req.body.sessionId;
+    if (sessionId && fullAssistantText) {
+      const supabase = getSupabaseClient(req);
+      if (supabase) {
+        const finalHistory = [...history, { role: 'assistant', content: fullAssistantText }];
+        await supabase.from('sessions').update({ messages: finalHistory, updated_at: new Date().toISOString() }).eq('id', sessionId);
+      }
+    }
   } catch (err) {
     send('error', { message: err.message || 'Unexpected error' });
   } finally {
-    res.end();
+    if (!res.writableEnded) res.end();
   }
 });
 

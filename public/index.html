@@ -147,20 +147,57 @@
 
       <section class="chat" id="chat">
         <div class="welcome" id="welcome">
-          <div class="welcome-glyph" aria-hidden="true">
-            <svg viewBox="0 0 24 24" width="34" height="34" fill="currentColor" stroke="none"><path d="M10 4.2c.62 3.06 1.52 3.96 4.6 4.6-3.08.64-3.98 1.54-4.6 4.6-.62-3.06-1.52-3.96-4.6-4.6 3.08-.64 3.98-1.54 4.6-4.6Z"/><path d="M17 13c.34 1.5.86 2.02 2.4 2.4-1.54.38-2.06.9-2.4 2.4-.34-1.5-.86-2.02-2.4-2.4 1.54-.38 2.06-.9 2.4-2.4Z"/></svg>
+          <div class="terminal-banner">
+<pre class="ascii-logo">
+███████╗ █████╗ ██████╗ ██╗   ██╗ ██████╗ ██████╗ ██████╗ ███████╗
+██╔════╝██╔══██╗██╔══██╗██║   ██║██╔════╝██╔═══██╗██╔══██╗██╔════╝
+███████╗███████║██████╔╝██║   ██║██║     ██║   ██║██║  ██║█████╗  
+╚════██║██╔══██║██╔══██╗██║   ██║██║     ██║   ██║██║  ██║██╔══╝  
+███████║██║  ██║██████╔╝╚██████╔╝╚██████╗╚██████╔╝██████╔╝███████╗
+╚══════╝╚═╝  ╚═╝╚═════╝  ╚═════╝  ╚═════╝ ╚═════╝ ╚═════╝ ╚══════╝
+</pre>
+            <div class="terminal-header-line">
+              <span class="version-text">SabuCode v1.0.0 (2026.4.16) · upstream d0e1388c</span>
+            </div>
+            
+            <div class="terminal-grid">
+              <div class="terminal-column">
+                <div class="col-title">Available Tools</div>
+                <div class="col-item"><span class="item-name">filesystem:</span> read_file, write_file, multi_replace...</div>
+                <div class="col-item"><span class="item-name">terminal:</span> run_command</div>
+                <div class="col-item"><span class="item-name">browser:</span> search_web</div>
+                <div class="col-item"><span class="item-name">agentic:</span> invoke_subagent, define_subagent...</div>
+                <div class="col-item more-text">(and system level access)</div>
+              </div>
+              
+              <div class="terminal-column">
+                <div class="col-title">Available Slash Commands</div>
+                <div class="col-item"><span class="item-name">/agent:</span> Spawn an autonomous sub-agent</div>
+                <div class="col-item"><span class="item-name">/createfile:</span> Quickly scaffold a new file</div>
+                <div class="col-item"><span class="item-name">/text:</span> Add arbitrary text to the context</div>
+              </div>
+            </div>
+            
+            <div class="terminal-footer">
+              15+ tools · 4 slash commands · /help for details
+            </div>
           </div>
-          <h1>What are we building today?</h1>
-          <p>Code, research, corporate work, creative writing or just messing around — everything in one place.</p>
-          <p class="welcome-hint">Type <code>/</code> to see commands like <code>/createfile</code>, <code>/think</code>, <code>/text</code> and <code>/agent</code>.</p>
-        </div>
-        <div class="messages" id="messages"></div>
+          <div class="welcome-prompt">
+            Welcome to SabuCode Terminal! Type your message or /help for commands.<br>
+            <span class="dim-text">✦ Tip: You can trigger background agents with /agent</span>
+          </div>
+        </div><div class="messages" id="messages"></div>
       </section>
 
       <form class="composer" id="composer">
         <div class="command-palette hidden" id="commandPalette"></div>
         <div class="active-command-chip hidden" id="activeCommandChip"></div>
-        <textarea id="promptInput" placeholder="Ask SabuCode anything… (try /think, /createfile, /text, /agent)" rows="1"></textarea>
+        <div class="thinking-slider-container">
+          <label for="thinkingSlider">Thinking</label>
+          <input type="range" id="thinkingSlider" min="0" max="100" value="0" step="25">
+          <span id="thinkingSliderValue">Off</span>
+        </div>
+        <textarea id="promptInput" placeholder="Ask SabuCode anything… (try /agent, /createfile, /text)" rows="1"></textarea>
         <button type="submit" class="send-btn" id="sendBtn" data-sound="send" aria-label="Send">
           <svg class="icon" viewBox="0 0 24 24" width="1em" height="1em" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V6.3"/><path d="M6.5 11 12 5.5 17.5 11"/></svg>
         </button>

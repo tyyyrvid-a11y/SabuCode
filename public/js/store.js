@@ -10,6 +10,21 @@ window.Store = (() => {
   let activeUserId = null; // null = signed out, Store reads/writes are no-ops
   let status = 'offline'; // offline | syncing | synced | error
   const statusListeners = [];
+  const dataListeners = [];
+
+  function onDataChange(fn) {
+    dataListeners.push(fn);
+  }
+
+  function notifyDataChange() {
+    dataListeners.forEach((fn) => fn());
+  }
+
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible' && activeUserId) {
+      syncForUser({ id: activeUserId });
+    }
+  });
 
   function setStatus(s) {
     status = s;
@@ -96,8 +111,16 @@ window.Store = (() => {
     if (!cloudReady || !activeUserId) return;
     const client = await window.Auth.getClient();
     setStatus('syncing');
-    const { error } = await client.from('sessions').upsert(toRow(session, activeUserId));
+    const { data, error } = await client.from('sessions').upsert(toRow(session, activeUserId)).select('updated_at').single();
     if (error) { console.warn('Supabase session sync failed:', error.message); setStatus('error'); return; }
+    if (data && data.updated_at) {
+      const d = ensure();
+      const s = d.sessions.find((x) => x.id === session.id);
+      if (s) {
+        s.updatedAt = new Date(data.updated_at).getTime();
+        write(d);
+      }
+    }
     setStatus('synced');
   }
 
@@ -130,20 +153,25 @@ window.Store = (() => {
     const d = ensure();
     const byId = new Map(d.sessions.map((s) => [s.id, s]));
     let maxSeq = d.seq || 0;
+    let changed = false;
     for (const row of data || []) {
       const remote = fromRow(row);
       const local = byId.get(remote.id);
-      if (!local || remote.updatedAt > local.updatedAt) byId.set(remote.id, remote);
+      if (!local || remote.updatedAt > local.updatedAt) {
+        byId.set(remote.id, remote);
+        changed = true;
+      }
       maxSeq = Math.max(maxSeq, remote.order || 0);
     }
     d.sessions = Array.from(byId.values());
-    d.seq = maxSeq;
+    if (d.seq !== maxSeq) { d.seq = maxSeq; changed = true; }
     write(d);
 
     // adopt any local-only sessions (created while signed out, pre-auth, or offline) into this account
     const remoteIds = new Set((data || []).map((r) => r.id));
     for (const s of d.sessions) if (!remoteIds.has(s.id)) cloudUpsert(s);
 
+    if (changed) notifyDataChange();
     setStatus('synced');
   }
 
@@ -211,5 +239,5 @@ window.Store = (() => {
     cloudDelete(id);
   }
 
-  return { init, all, get, currentId, setCurrent, create, saveMessages, remove, onStatus, getStatus };
+  return { init, all, get, currentId, setCurrent, create, saveMessages, remove, onStatus, getStatus, onDataChange };
 })();

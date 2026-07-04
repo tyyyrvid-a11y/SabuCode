@@ -44,20 +44,6 @@ const COMMANDS = {
       'describe below. Use write_file for every file — never just describe or paste the file as text. Keep your ' +
       'chat reply to a short, friendly summary; let the files speak for themselves.'
   },
-  think: {
-    label: 'Think',
-    temperature: 0.4,
-    extra:
-      'The user invoked /think: they want a brief round of deliberate reasoning before you answer — not an ' +
-      'exhaustive investigation. Inside a <thinking>...</thinking> block, jot down only the key steps or ' +
-      'considerations needed to reach a correct answer, in a few short sentences (a couple of short paragraphs ' +
-      'at most). Do not re-derive the same point twice, do not enumerate every alternative, and do not keep ' +
-      'second-guessing an answer you already know is right — reasoning tokens are limited and shared with your ' +
-      'final answer, so once you have enough to answer confidently, stop thinking and close the block. This ' +
-      'block is shown to the user as a separate "thinking" panel, not as your answer. After the closing ' +
-      '</thinking> tag, write your final, concise answer as normal text outside the block. Always include both a ' +
-      '<thinking> block and a final answer after it, and always leave enough room for the final answer.'
-  },
   text: {
     label: 'Creative writing',
     temperature: 0.95,
@@ -224,6 +210,97 @@ function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+const JSON_ESCAPES = { '"': '"', '\\': '\\', '/': '/', b: '\b', f: '\f', n: '\n', r: '\r', t: '\t' };
+
+// Incrementally unescapes a JSON string *value* as its raw source text arrives in arbitrary
+// chunks (tool-call arguments stream in fragments that don't respect escape-sequence
+// boundaries). Used to show write_file's `content` argument "typing" live, before the whole
+// tool call has finished — purely cosmetic: the authoritative file content still comes from
+// JSON.parse on the complete arguments string once the tool call is done.
+function createJsonStringDecoder() {
+  let buf = '';
+  let done = false;
+  return {
+    get done() {
+      return done;
+    },
+    feed(rawChunk) {
+      if (done) return '';
+      buf += rawChunk;
+      let out = '';
+      let i = 0;
+      while (i < buf.length) {
+        const ch = buf[i];
+        if (ch === '"') {
+          done = true;
+          i++;
+          break;
+        }
+        if (ch === '\\') {
+          if (i + 1 >= buf.length) break; // wait for the escape to fully arrive
+          const next = buf[i + 1];
+          if (next === 'u') {
+            if (i + 6 > buf.length) break; // wait for the full \uXXXX
+            out += String.fromCharCode(parseInt(buf.slice(i + 2, i + 6), 16));
+            i += 6;
+          } else {
+            out += JSON_ESCAPES[next] !== undefined ? JSON_ESCAPES[next] : next;
+            i += 2;
+          }
+        } else {
+          out += ch;
+          i++;
+        }
+      }
+      buf = buf.slice(i);
+      return out;
+    }
+  };
+}
+
+// Tracks write_file tool-call streaming state per tool-call index within one assistant
+// turn, so partial `content` text can be surfaced live as it streams in.
+function createFileStreamTracker(onFileStart, onFileDelta) {
+  const state = {};
+  return function feedToolCallDelta(idx, toolCallsAcc) {
+    const acc = toolCallsAcc[idx];
+    if (!acc || acc.function.name !== 'write_file') return;
+    const argsAcc = acc.function.arguments;
+    let st = state[idx];
+    if (!st) st = state[idx] = { path: null, contentStartIdx: null, contentRawFed: 0, decoder: null };
+
+    if (!st.path) {
+      const m = /"path"\s*:\s*"((?:[^"\\]|\\.)*)"/.exec(argsAcc);
+      if (m) {
+        try {
+          st.path = JSON.parse(`"${m[1]}"`);
+        } catch {
+          st.path = m[1];
+        }
+        onFileStart({ path: st.path });
+      }
+    }
+
+    if (st.path && st.contentStartIdx == null) {
+      const cm = /"content"\s*:\s*"/.exec(argsAcc);
+      if (cm) {
+        st.contentStartIdx = cm.index + cm[0].length;
+        st.decoder = createJsonStringDecoder();
+      }
+    }
+
+    if (st.contentStartIdx != null && st.decoder && !st.decoder.done) {
+      const totalRaw = argsAcc.length - st.contentStartIdx;
+      if (totalRaw > st.contentRawFed) {
+        const chunk = argsAcc.slice(st.contentStartIdx + st.contentRawFed);
+        st.contentRawFed = totalRaw;
+        const text = st.decoder.feed(chunk);
+        if (text) onFileDelta({ path: st.path, text });
+      }
+    }
+  };
+}
+
 // runs fn over items with at most `limit` in flight at once, instead of firing everything at
 // the same time — keeps /agent from bursting past a rate-limited key's requests/minute cap.
 async function mapWithConcurrency(items, limit, fn) {
@@ -242,15 +319,16 @@ async function mapWithConcurrency(items, limit, fn) {
 // NIM trial keys often have tight rate limits, and /agent fires several requests
 // close together (plan + parallel subagents), so retry transient 429s with backoff.
 async function chatCompletionStream(messages, opts = {}) {
-  const attempts = 3;
+  const attempts = 6;
   let lastErr;
   for (let i = 0; i < attempts; i++) {
     try {
       return await chatCompletionStreamOnce(messages, opts);
     } catch (err) {
       lastErr = err;
-      if (err.status !== 429 || i === attempts - 1) throw err;
-      await sleep(900 * (i + 1) + Math.random() * 400);
+      if (![429, 502, 503, 529].includes(err.status) || i === attempts - 1) throw err;
+      // Exponential backoff: 2s, 4s, 8s, 16s, 32s + jitter
+      await sleep(2000 * Math.pow(2, i) + Math.random() * 1000);
     }
   }
   throw lastErr;
@@ -258,7 +336,15 @@ async function chatCompletionStream(messages, opts = {}) {
 
 async function chatCompletionStreamOnce(
   messages,
-  { temperature = 0.6, toolsEnabled = true, thinking = false, onDelta = () => {}, onReasoning = () => {} } = {}
+  {
+    temperature = 0.6,
+    toolsEnabled = true,
+    thinking = false,
+    onDelta = () => {},
+    onReasoning = () => {},
+    onFileStart = () => {},
+    onFileDelta = () => {}
+  } = {}
 ) {
   const res = await fetch(`${BASE_URL}/chat/completions`, {
     method: 'POST',
@@ -293,6 +379,7 @@ async function chatCompletionStreamOnce(
   let finishReason = null;
   const toolCallsAcc = {};
   const splitter = thinking ? makeThinkingSplitter(onReasoning, onDelta) : null;
+  const feedFileStream = createFileStreamTracker(onFileStart, onFileDelta);
 
   while (true) {
     const { done, value } = await reader.read();
@@ -336,6 +423,7 @@ async function chatCompletionStreamOnce(
           if (tc.id) toolCallsAcc[idx].id = tc.id;
           if (tc.function?.name) toolCallsAcc[idx].function.name += tc.function.name;
           if (tc.function?.arguments) toolCallsAcc[idx].function.arguments += tc.function.arguments;
+          feedFileStream(idx, toolCallsAcc);
         }
       }
 
@@ -348,21 +436,32 @@ async function chatCompletionStreamOnce(
   return { content, toolCalls: Object.values(toolCallsAcc), finishReason };
 }
 
-async function runAgent({ command = null, commands = null, history, toolsEnabled = true }, hooks = {}) {
+async function runAgent({ command = null, commands = null, history, toolsEnabled = true, thinkingBudget = 0 }, hooks = {}) {
   assertConfigured();
-  const { onDelta = () => {}, onReasoning = () => {}, onToolStart = () => {}, onToolEnd = () => {} } = hooks;
+  const {
+    onDelta = () => {},
+    onReasoning = () => {},
+    onToolStart = () => {},
+    onToolEnd = () => {},
+    onFileStart = () => {},
+    onFileDelta = () => {}
+  } = hooks;
 
   // accept either the legacy single `command` or a merged `commands` array (e.g. /text + /think)
   const cmdNames = (Array.isArray(commands) && commands.length ? commands : command ? [command] : []).filter(
     (c) => COMMANDS[c]
   );
   const activeCommands = cmdNames.map((c) => COMMANDS[c]);
-  const extra = activeCommands.length ? activeCommands.map((c) => c.extra).join('\n\n') : null;
+  let extra = activeCommands.length ? activeCommands.map((c) => c.extra).join('\n\n') : null;
   // when merging modes, average their temperatures so no single mode dominates the mix
   const temperature = activeCommands.length
     ? activeCommands.reduce((sum, c) => sum + c.temperature, 0) / activeCommands.length
     : 0.6;
-  const thinking = cmdNames.includes('think');
+  const thinking = cmdNames.includes('think') || thinkingBudget > 0;
+  if (thinking) {
+    const thinkingPrompt = 'You are configured to think before you answer. Inside a <thinking>...</thinking> block, jot down only the key steps or considerations needed to reach a correct answer, in a few short sentences. Do not keep second-guessing an answer you already know is right — reasoning tokens are limited and shared with your final answer, so once you have enough to answer confidently, stop thinking and close the block. This block is shown to the user as a separate "thinking" panel, not as your answer. After the closing </thinking> tag, write your final, concise answer as normal text outside the block. Always include both a <thinking> block and a final answer after it, and always leave enough room for the final answer.';
+    extra = extra ? extra + '\n\n' + thinkingPrompt : thinkingPrompt;
+  }
 
   const messages = buildMessages(history, extra);
 
@@ -372,7 +471,9 @@ async function runAgent({ command = null, commands = null, history, toolsEnabled
       toolsEnabled,
       thinking,
       onDelta,
-      onReasoning
+      onReasoning,
+      onFileStart,
+      onFileDelta
     });
 
     if (finishReason !== 'tool_calls' || !toolCalls.length) {
@@ -412,7 +513,9 @@ async function runMultiAgent({ task, toolsEnabled = true, extraSystem = null }, 
     onAgentDelta = () => {},
     onAgentToolStart = () => {},
     onAgentToolEnd = () => {},
-    onAgentEnd = () => {}
+    onAgentEnd = () => {},
+    onAgentFileStart = () => {},
+    onAgentFileDelta = () => {}
   } = hooks;
 
   const planMessages = [
@@ -458,7 +561,9 @@ async function runMultiAgent({ task, toolsEnabled = true, extraSystem = null }, 
           onDelta: (t) => {
             text += t;
             onAgentDelta({ id, text: t });
-          }
+          },
+          onFileStart: ({ path }) => onAgentFileStart({ id, path }),
+          onFileDelta: ({ path, text: t }) => onAgentFileDelta({ id, path, text: t })
         });
 
         if (finishReason !== 'tool_calls' || !toolCalls.length) break;
