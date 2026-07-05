@@ -1,9 +1,20 @@
 (() => {
+  const MODELS = {
+    glm: { label: 'GLM', desc: 'z-ai/glm-5.2 (default)' },
+    deepseek: { label: 'DeepSeek', desc: 'deepseek-ai/deepseek-v4-pro' },
+    gemma: { label: 'Gemma', desc: 'google/gemma-4-31b-it' }
+  };
+  const MODEL_STORAGE_KEY = 'sabucode_model';
+
   const state = {
     history: [],
     files: new Map(), // path -> content
     sending: false,
-    currentSessionId: null
+    currentSessionId: null,
+    model: (() => {
+      const saved = localStorage.getItem(MODEL_STORAGE_KEY);
+      return saved && MODELS[saved] ? saved : 'glm';
+    })()
   };
 
   let activeAbortController = null;
@@ -827,6 +838,24 @@
     const text = el.promptInput.value.trim();
     if (!text) return;
 
+    const modelMatch = /^\/model\s+(\S+)/i.exec(text);
+    if (modelMatch) {
+      const key = modelMatch[1].toLowerCase();
+      const meta = MODELS[key];
+      el.promptInput.value = '';
+      el.promptInput.style.height = 'auto';
+      updateActiveCommandChip();
+      if (!meta) {
+        playError(`Unknown model "${key}". Try: ${Object.keys(MODELS).join(', ')}`);
+        return;
+      }
+      state.model = key;
+      localStorage.setItem(MODEL_STORAGE_KEY, key);
+      toast(`Model switched to ${meta.label} (${meta.desc})`);
+      Sound.tap(); Haptics.tap();
+      return;
+    }
+
     if (text.toLowerCase() === '/undo') {
       state.history.push({ role: 'user', content: text });
       persist();
@@ -922,7 +951,8 @@
           commands,
           history,
           tools: el.toolsToggle.checked,
-          thinkingBudget: parseInt(el.thinkingSlider.value, 10)
+          thinkingBudget: parseInt(el.thinkingSlider.value, 10),
+          model: state.model
         })
       });
 

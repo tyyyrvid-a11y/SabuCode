@@ -5,6 +5,17 @@ const API_KEY = process.env.NVIDIA_NIM_API_KEY;
 const MODEL = process.env.NVIDIA_NIM_MODEL || 'z-ai/glm-5.2';
 const MAX_TOKENS = Number(process.env.NVIDIA_NIM_MAX_TOKENS) || 16384;
 
+// /model <name> switches which NIM-hosted model handles the request; "glm" keeps the default.
+const MODEL_ALIASES = {
+  glm: MODEL,
+  deepseek: 'deepseek-ai/deepseek-v4-pro',
+  gemma: 'google/gemma-4-31b-it'
+};
+
+function resolveModel(key) {
+  return (key && MODEL_ALIASES[key]) || MODEL;
+}
+
 const MAX_TOOL_STEPS = 10;
 const MAX_SUBAGENTS = 4;
 const MAX_CONCURRENT_SUBAGENTS = 2; // cap parallel NIM calls so rate-limited keys don't 429
@@ -340,6 +351,7 @@ async function chatCompletionStreamOnce(
     temperature = 0.6,
     toolsEnabled = true,
     thinking = false,
+    model = MODEL,
     onDelta = () => {},
     onReasoning = () => {},
     onFileStart = () => {},
@@ -354,7 +366,7 @@ async function chatCompletionStreamOnce(
       Accept: 'text/event-stream'
     },
     body: JSON.stringify({
-      model: MODEL,
+      model,
       messages,
       ...(toolsEnabled ? { tools: TOOLS, tool_choice: 'auto' } : {}),
       ...(thinking ? { chat_template_kwargs: { thinking: true } } : {}),
@@ -436,8 +448,9 @@ async function chatCompletionStreamOnce(
   return { content, toolCalls: Object.values(toolCallsAcc), finishReason };
 }
 
-async function runAgent({ command = null, commands = null, history, toolsEnabled = true, thinkingBudget = 0 }, hooks = {}) {
+async function runAgent({ command = null, commands = null, history, toolsEnabled = true, thinkingBudget = 0, model = null }, hooks = {}) {
   assertConfigured();
+  const resolvedModel = resolveModel(model);
   const {
     onDelta = () => {},
     onReasoning = () => {},
@@ -470,6 +483,7 @@ async function runAgent({ command = null, commands = null, history, toolsEnabled
       temperature,
       toolsEnabled,
       thinking,
+      model: resolvedModel,
       onDelta,
       onReasoning,
       onFileStart,
@@ -504,8 +518,9 @@ async function runAgent({ command = null, commands = null, history, toolsEnabled
 }
 
 // /agent — plans 2-4 focused subagents, runs them in parallel, then synthesizes one final answer.
-async function runMultiAgent({ task, toolsEnabled = true, extraSystem = null }, hooks = {}) {
+async function runMultiAgent({ task, toolsEnabled = true, extraSystem = null, model = null }, hooks = {}) {
   assertConfigured();
+  const resolvedModel = resolveModel(model);
   const {
     onDelta = () => {},
     onPlan = () => {},
@@ -522,7 +537,7 @@ async function runMultiAgent({ task, toolsEnabled = true, extraSystem = null }, 
     { role: 'system', content: PLAN_SYSTEM },
     { role: 'user', content: task }
   ];
-  const { content: planRaw } = await chatCompletionStream(planMessages, { temperature: 0.3, toolsEnabled: false });
+  const { content: planRaw } = await chatCompletionStream(planMessages, { temperature: 0.3, toolsEnabled: false, model: resolvedModel });
 
   let plan;
   try {
@@ -558,6 +573,7 @@ async function runMultiAgent({ task, toolsEnabled = true, extraSystem = null }, 
         const { content, toolCalls, finishReason } = await chatCompletionStream(subMessages, {
           temperature: 0.5,
           toolsEnabled,
+          model: resolvedModel,
           onDelta: (t) => {
             text += t;
             onAgentDelta({ id, text: t });
@@ -604,10 +620,11 @@ async function runMultiAgent({ task, toolsEnabled = true, extraSystem = null }, 
   const { content: finalText } = await chatCompletionStream(synthMessages, {
     temperature: 0.5,
     toolsEnabled: false,
+    model: resolvedModel,
     onDelta
   });
 
   return finalText;
 }
 
-module.exports = { runAgent, runMultiAgent, COMMANDS, MODEL };
+module.exports = { runAgent, runMultiAgent, COMMANDS, MODEL, MODEL_ALIASES };

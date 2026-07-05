@@ -36,7 +36,7 @@ function slimArgsForEcho(name, args) {
 }
 
 router.post('/', async (req, res) => {
-  const { command = null, commands = null, history = [], tools = true, thinkingBudget = 0 } = req.body || {};
+  const { command = null, commands = null, history = [], tools = true, thinkingBudget = 0, model = null } = req.body || {};
 
   if (!Array.isArray(history) || !history.length) {
     return res.status(400).json({ error: 'history must be a non-empty array' });
@@ -78,7 +78,7 @@ router.post('/', async (req, res) => {
       const extraSystem = extraCommands.map((c) => COMMANDS[c].extra).join('\n\n') || null;
 
       await runMultiAgent(
-        { task, toolsEnabled, extraSystem },
+        { task, toolsEnabled, extraSystem, model },
         {
           onPlan: (agents) => send('agent_plan', { agents }),
           onAgentStart: (d) => send('agent_start', d),
@@ -99,7 +99,7 @@ router.post('/', async (req, res) => {
       );
     } else {
       await runAgent(
-        { commands: cmdList, history, toolsEnabled, thinkingBudget },
+        { commands: cmdList, history, toolsEnabled, thinkingBudget, model },
         {
           onDelta: (text) => { fullAssistantText += text; send('delta', { text }); },
           onReasoning: (text) => send('thinking', { text }),

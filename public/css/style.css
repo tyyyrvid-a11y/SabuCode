@@ -1585,13 +1585,14 @@ button, input, textarea {
   font-weight: bold;
   font-size: 0.95rem;
   line-height: 1.1;
-  margin: -10px 0 24px 0;
+  margin: 0 0 24px 0;
   text-align: left;
   background: linear-gradient(180deg, #ffd700 50%, #ff8c00 50%);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   color: #ff8c00; /* Fallback */
   white-space: pre;
+  overflow-x: auto;
 }
 
 .terminal-header-line {
@@ -1682,4 +1683,38 @@ button, input, textarea {
   accent-color: var(--orange);
   width: 100px;
   cursor: pointer;
+}
+
+/* Mobile Optimizations */
+@media (max-width: 600px) {
+  .ascii-logo {
+    font-size: 0.45rem;
+    overflow-x: auto;
+    white-space: pre-wrap;
+    word-break: break-all;
+  }
+  .terminal-banner {
+    padding: 12px;
+  }
+  .thinking-slider-container {
+    position: relative;
+    top: 0;
+    margin-bottom: 8px;
+    width: 100%;
+    justify-content: flex-start;
+  }
+  .msg-body {
+    font-size: 0.9rem;
+  }
+  .sidebar {
+    width: 85vw;
+  }
+  .composer {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .send-btn {
+    align-self: flex-end;
+    margin-top: 8px;
+  }
 }
